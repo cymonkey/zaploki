@@ -33,28 +33,58 @@ type jsonLogEntry struct {
 
 type LogLineBuilder func(zapEntry zapcore.Entry, logFields []zapcore.Field) string
 
-type Sink struct {
+type EntryLike interface {
+	push.Entry
+}
+
+type Sink[T any] struct {
 	LogHandler
 	// Zap sink compatible
 	zap.Sink
-	client         LokiClient[push.Entry]
+	client         LokiClient[T]
 	printFieldKey  bool
 	loglineBuilder LogLineBuilder
 	dynamicLabels  map[string]string
+	entryConverter func(e push.Entry) T
 }
 
 var (
-	_ zap.Sink   = (*Sink)(nil)
-	_ LogHandler = (*Sink)(nil)
+	_ zap.Sink   = (*Sink[any])(nil)
+	_ LogHandler = (*Sink[any])(nil)
 )
 
-func NewSink(c LokiClient[push.Entry], cfg SinkConfig) LogHandler {
-	sink := &Sink{
+// func NewSink(c LokiClient[push.Entry], cfg SinkConfig) LogHandler {
+// 	sink := &Sink{
+// 		client:         c,
+// 		printFieldKey:  cfg.PrintFieldKey,
+// 		loglineBuilder: cfg.LoglineBuilder,
+// 		dynamicLabels:  make(map[string]string),
+// 	}
+
+// 	if cfg.LoglineBuilder == nil {
+// 		cfg.LoglineBuilder = sink.buildLogline
+// 	}
+
+// 	for _, v := range cfg.DynamicLabels {
+// 		sink.dynamicLabels[v] = ""
+// 	}
+
+// 	return sink
+// }
+
+func (s *Sink[T]) defaultConverter(e push.Entry) T {
+	return any(e).(T)
+}
+
+func NewHandler[T any](c LokiClient[T], cfg SinkConfig) LogHandler {
+	sink := &Sink[T]{
 		client:         c,
 		printFieldKey:  cfg.PrintFieldKey,
 		loglineBuilder: cfg.LoglineBuilder,
 		dynamicLabels:  make(map[string]string),
 	}
+
+	sink.entryConverter = sink.defaultConverter
 
 	if cfg.LoglineBuilder == nil {
 		cfg.LoglineBuilder = sink.buildLogline
@@ -83,17 +113,17 @@ func NewSink(c LokiClient[push.Entry], cfg SinkConfig) LogHandler {
 /**
 * Zap sink implementation
  */
-func (s *Sink) Sync() error {
+func (s *Sink[T]) Sync() error {
 	// s.client.Flush()
 	return nil
 }
-func (s *Sink) Close() error {
+func (s *Sink[T]) Close() error {
 	s.client.Stop()
 	return nil
 }
 
 // Backward compatible, should not use if necessary
-func (s *Sink) Write(p []byte) (int, error) {
+func (s *Sink[T]) Write(p []byte) (int, error) {
 	var entry jsonLogEntry
 	err := json.Unmarshal(p, &entry)
 	if err != nil {
@@ -111,11 +141,11 @@ func (s *Sink) Write(p []byte) (int, error) {
 		Timestamp: time.UnixMilli(int64(entry.Timestamp) * int64(time.Millisecond)),
 		Line:      entry.Message,
 	}
-	s.client.Chan() <- e
+	s.client.Chan() <- s.entryConverter(e)
 	return len(p), nil
 }
 
-func (s *Sink) Proceed(zapEntry zapcore.Entry, fields []zapcore.Field) error {
+func (s *Sink[T]) Proceed(zapEntry zapcore.Entry, fields []zapcore.Field) error {
 	metadata, loglineFields := extractDynamicLabelsFromFields(s.dynamicLabels, fields)
 
 	e := push.Entry{
@@ -124,7 +154,7 @@ func (s *Sink) Proceed(zapEntry zapcore.Entry, fields []zapcore.Field) error {
 		StructuredMetadata: metadata,
 	}
 
-	s.client.Chan() <- e
+	s.client.Chan() <- s.entryConverter(e)
 	return nil
 }
 
@@ -172,7 +202,7 @@ func FromFieldToString(f zapcore.Field) string {
 	return ""
 }
 
-func (s *Sink) buildLogline(zapEntry zapcore.Entry, logFields []zapcore.Field) string {
+func (s *Sink[T]) buildLogline(zapEntry zapcore.Entry, logFields []zapcore.Field) string {
 	var b strings.Builder
 	separator := " "
 

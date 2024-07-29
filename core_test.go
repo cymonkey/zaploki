@@ -24,7 +24,7 @@ var (
 	_ LokiClient[push.Entry] = (*TestClient)(nil)
 )
 
-var logHandler LogHandler = NewSink(&TestClient{}, SinkConfig{})
+var logHandler LogHandler = NewHandler[push.Entry](&TestClient{}, SinkConfig{})
 
 func TestNewCoreWithCreateLogger(t *testing.T) {
 	type args struct {
