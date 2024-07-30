@@ -62,7 +62,7 @@ var (
 // 	}
 
 // 	if cfg.LoglineBuilder == nil {
-// 		cfg.LoglineBuilder = sink.buildLogline
+// 		cfg.LoglineBuilder = sink.defaultLineBuilder
 // 	}
 
 // 	for _, v := range cfg.DynamicLabels {
@@ -87,7 +87,7 @@ func NewHandler[T any](c LokiClient[T], cfg SinkConfig) LogHandler {
 	sink.entryConverter = sink.defaultConverter
 
 	if cfg.LoglineBuilder == nil {
-		cfg.LoglineBuilder = sink.buildLogline
+		sink.loglineBuilder = sink.defaultLineBuilder
 	}
 
 	for _, v := range cfg.DynamicLabels {
@@ -202,7 +202,7 @@ func FromFieldToString(f zapcore.Field) string {
 	return ""
 }
 
-func (s *Sink[T]) buildLogline(zapEntry zapcore.Entry, logFields []zapcore.Field) string {
+func (s *Sink[T]) defaultLineBuilder(zapEntry zapcore.Entry, logFields []zapcore.Field) string {
 	var b strings.Builder
 	separator := " "
 
